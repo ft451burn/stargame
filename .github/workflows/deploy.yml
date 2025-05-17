@@ -26,7 +26,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '18'
           cache: 'npm'
 
       - name: Install dependencies
@@ -34,8 +34,14 @@ jobs:
           npm config set legacy-peer-deps true
           npm ci --prefer-offline --no-audit
 
+      - name: Print package information
+        run: |
+          echo "Node version: $(node -v)"
+          echo "NPM version: $(npm -v)"
+          npm list react react-dom react-router-dom styled-components --depth=0
+
       - name: Build project
-        run: npm run build
+        run: CI=false npm run build
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
