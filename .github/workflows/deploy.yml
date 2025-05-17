@@ -30,7 +30,9 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm config set legacy-peer-deps true
+          npm ci --prefer-offline --no-audit
 
       - name: Build project
         run: npm run build
