@@ -4,6 +4,7 @@ import styled from 'styled-components';
 import MainMenu from './pages/MainMenu';
 import GameScreen from './pages/GameScreen';
 import OptionsScreen from './pages/OptionsScreen';
+import HighScores from './pages/HighScores';
 import './App.css';
 
 const AppContainer = styled.div`
@@ -26,6 +27,7 @@ function App() {
           <Route path="/" element={<MainMenu />} />
           <Route path="/game" element={<GameScreen />} />
           <Route path="/options" element={<OptionsScreen />} />
+          <Route path="/highscores" element={<HighScores />} />
         </Routes>
       </Router>
     </AppContainer>

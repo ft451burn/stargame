@@ -75,11 +75,16 @@ const MainMenu: React.FC = () => {
     navigate('/options');
   };
   
+  const handleHighScores = () => {
+    navigate('/highscores');
+  };
+  
   return (
     <MenuContainer>
       <RetroLogo width={logoSize.width} height={logoSize.height} />
       <ButtonContainer>
         <MenuButton onClick={handleStartGame}>START</MenuButton>
+        <MenuButton onClick={handleHighScores}>HIGH SCORES</MenuButton>
         <MenuButton onClick={handleOptions}>OPTIONS</MenuButton>
       </ButtonContainer>
     </MenuContainer>
