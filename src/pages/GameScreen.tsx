@@ -39,6 +39,12 @@ const OverlayText = styled.h2`
   margin-bottom: 2rem;
 `;
 
+const ScoreText = styled.h3`
+  color: #FFD700;
+  font-size: 2rem;
+  margin-bottom: 2rem;
+`;
+
 const Button = styled.button`
   background-color: transparent;
   color: white;
@@ -55,10 +61,18 @@ const Button = styled.button`
   }
 `;
 
+const ControlsText = styled.p`
+  color: #FFD700;
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+`;
+
 const GameScreen: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameEngineRef = useRef<GameEngine | null>(null);
   const [gameOver, setGameOver] = useState(false);
+  const [score, setScore] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
   const navigate = useNavigate();
   
   useEffect(() => {
@@ -76,6 +90,15 @@ const GameScreen: React.FC = () => {
     // Start the game
     gameEngine.start();
     
+    // Check game state periodically
+    const gameStateInterval = setInterval(() => {
+      if (gameEngine.isGameOver()) {
+        setGameOver(true);
+        setScore(gameEngine.getScore());
+        clearInterval(gameStateInterval);
+      }
+    }, 500);
+    
     // Handle window resize
     const handleResize = () => {
       canvas.width = window.innerWidth * 0.8;
@@ -83,11 +106,21 @@ const GameScreen: React.FC = () => {
       gameEngine.resize(canvas.width, canvas.height);
     };
     
+    // Handle pause with Escape key
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsPaused(prev => !prev);
+      }
+    };
+    
     window.addEventListener('resize', handleResize);
+    window.addEventListener('keydown', handleKeyDown);
     
     // Cleanup
     return () => {
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('keydown', handleKeyDown);
+      clearInterval(gameStateInterval);
       if (gameEngineRef.current) {
         gameEngineRef.current.dispose();
       }
@@ -100,10 +133,20 @@ const GameScreen: React.FC = () => {
   
   const handleRetry = () => {
     setGameOver(false);
+    setIsPaused(false);
     if (gameEngineRef.current) {
-      // Reset game logic would go here
-      gameEngineRef.current.start();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      
+      // Reinitialize the game engine
+      const gameEngine = new GameEngine(canvas);
+      gameEngineRef.current = gameEngine;
+      gameEngine.start();
     }
+  };
+  
+  const handleContinue = () => {
+    setIsPaused(false);
   };
   
   return (
@@ -113,8 +156,37 @@ const GameScreen: React.FC = () => {
       {gameOver && (
         <GameOverlay>
           <OverlayText>Game Over</OverlayText>
+          <ScoreText>Your Score: {score}</ScoreText>
           <Button onClick={handleRetry}>Retry</Button>
-          <Button onClick={handleMainMenu} style={{ marginTop: '1rem' }}>Main Menu</Button>
+          <Button onClick={handleMainMenu}>Main Menu</Button>
+        </GameOverlay>
+      )}
+      
+      {isPaused && !gameOver && (
+        <GameOverlay>
+          <OverlayText>Paused</OverlayText>
+          <ControlsText>
+            <strong>Controls:</strong>
+            <br />
+            Arrow Keys - Move ship
+            <br />
+            Space - Fire weapon
+            <br />
+            Escape - Pause/Resume
+          </ControlsText>
+          <ControlsText>
+            <strong>Power-ups:</strong>
+            <br />
+            🔴 Red - Weapon upgrade
+            <br />
+            🔵 Blue - Shield
+            <br />
+            🟢 Green - Extra life
+            <br />
+            🟡 Yellow - Speed boost
+          </ControlsText>
+          <Button onClick={handleContinue}>Continue</Button>
+          <Button onClick={handleMainMenu}>Main Menu</Button>
         </GameOverlay>
       )}
     </GameContainer>
