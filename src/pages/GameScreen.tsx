@@ -130,10 +130,12 @@ const GameScreen: React.FC = () => {
     
     // Handle ONLY the Escape key for pausing
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !gameEngine.isGameOver()) {
-        // Toggle pause state
-        const newPausedState = !isPaused;
-        setIsPaused(newPausedState);
+      if (e.key === 'Escape') {
+        // Toggle pause state regardless of current state
+        // (as long as the game is not over)
+        if (!gameEngineRef.current?.isGameOver()) {
+          setIsPaused(prevState => !prevState);
+        }
       }
     };
     
