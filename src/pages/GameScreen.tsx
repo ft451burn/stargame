@@ -99,7 +99,7 @@ const GameScreen: React.FC = () => {
     canvas.width = window.innerWidth * 0.8;
     canvas.height = window.innerHeight * 0.8;
     
-    // Initialize game engine
+    // Initialize game engine - only on mount
     const gameEngine = new GameEngine(canvas);
     gameEngineRef.current = gameEngine;
     
@@ -128,13 +128,12 @@ const GameScreen: React.FC = () => {
       gameEngine.resize(canvas.width, canvas.height);
     };
     
-    // Handle pause with Escape key
+    // Handle ONLY the Escape key for pausing
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only handle keyboard input if game is not over
-      if (!gameEngine.isGameOver()) {
-        if (e.key === 'Escape') {
-          setIsPaused(prev => !prev);
-        }
+      if (e.key === 'Escape' && !gameEngine.isGameOver()) {
+        // Toggle pause state
+        const newPausedState = !isPaused;
+        setIsPaused(newPausedState);
       }
     };
     
@@ -150,7 +149,19 @@ const GameScreen: React.FC = () => {
         gameEngineRef.current.dispose();
       }
     };
-  }, []);
+  }, []); // No dependencies ensures this only runs once on mount
+  
+  // Separate effect to handle pause state changes
+  useEffect(() => {
+    const gameEngine = gameEngineRef.current;
+    if (!gameEngine || gameEngine.isGameOver()) return;
+    
+    if (isPaused) {
+      gameEngine.stop();
+    } else {
+      gameEngine.start();
+    }
+  }, [isPaused]);
   
   const saveHighScore = (score: number) => {
     if (scoreSaved) return;
@@ -188,26 +199,31 @@ const GameScreen: React.FC = () => {
   };
   
   const handleRetry = () => {
+    // Reset all state
     setGameOver(false);
     setIsPaused(false);
     setScoreSaved(false);
+    
+    // Reset the game engine completely with a new instance
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    // Create a brand new game engine instance
     if (gameEngineRef.current) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      
-      // Reinitialize the game engine
-      const gameEngine = new GameEngine(canvas);
-      gameEngineRef.current = gameEngine;
-      gameEngine.start();
+      gameEngineRef.current.dispose();
     }
-  };
-  
-  const handleContinue = () => {
-    setIsPaused(false);
+    
+    const gameEngine = new GameEngine(canvas);
+    gameEngineRef.current = gameEngine;
+    gameEngine.start();
   };
   
   const handleHighScores = () => {
     navigate('/highscores');
+  };
+  
+  const handleContinue = () => {
+    setIsPaused(false);
   };
   
   return (
@@ -236,7 +252,7 @@ const GameScreen: React.FC = () => {
             <br />
             Space - Fire weapon
             <br />
-            Escape - Pause/Resume
+            Escape - Pause/Unpause
           </ControlsText>
           <ControlsText>
             <strong>Power-ups:</strong>

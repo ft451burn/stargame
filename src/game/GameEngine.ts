@@ -110,7 +110,9 @@ export class GameEngine {
   private enemySpawnInterval: number = 15; // Spawn enemy every 15 seconds
   private level: number = 1;
   private gameOver: boolean = false;
+  private paused: boolean = false;
   private animationFrameId: number | null = null;
+  private frameTimeBeforePause: number = 0; // Store the time before pause
   
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -125,21 +127,32 @@ export class GameEngine {
     // Generate initial enemies
     this.generateEnemies(1);
     
+    // Ensure paused is correctly initialized
+    this.paused = false;
+    
+    // Make sure to render at least once to avoid black screen
+    this.render();
+    
     // Set up event listeners
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
   }
   
   private handleKeyDown = (e: KeyboardEvent) => {
-    this.keys[e.key] = true;
-    
-    // Fire weapon with space key
-    if (e.key === ' ' && this.ship.weapon) {
-      this.fireWeapon();
+    // Only process keydown events if the game is not paused and not over
+    if (!this.paused && !this.gameOver) {
+      // Store the key state for movement controls
+      this.keys[e.key] = true;
+      
+      // Fire weapon with space key
+      if (e.key === ' ' && this.ship.weapon) {
+        this.fireWeapon();
+      }
     }
   };
   
   private handleKeyUp = (e: KeyboardEvent) => {
+    // Always update the key state, even if paused
     this.keys[e.key] = false;
   };
   
@@ -1191,28 +1204,82 @@ export class GameEngine {
   }
   
   public start() {
-    // Reset game over flag when starting
-    this.gameOver = false;
+    // If game is already running, do nothing
+    if (this.animationFrameId !== null && !this.paused) {
+      return;
+    }
+    
+    // If we're unpausing, just set paused to false but don't reinitialize
+    if (this.paused) {
+      this.paused = false;
+      // Reset keys state to prevent stuck keys after pause
+      this.keys = {};
+      // Resume the game loop
+      this.lastTime = performance.now(); // Reset time to avoid huge delta
+      this.animationFrameId = requestAnimationFrame(this.gameLoop);
+      return;
+    }
+    
+    // If restarting after game over, reset game over flag
+    if (this.gameOver) {
+      this.gameOver = false;
+    }
+    
+    // Initialize the game for a new start
     this.lastTime = performance.now();
+    this.paused = false;
+    
+    // Reset keys state on new game
+    this.keys = {};
+    
+    // Make sure we render at least once immediately
+    this.render();
+    
+    // Start the game loop
     this.animationFrameId = requestAnimationFrame(this.gameLoop);
   }
   
   public stop() {
-    // Cancel the animation frame if it exists
-    if (this.animationFrameId !== null) {
-      cancelAnimationFrame(this.animationFrameId);
-      this.animationFrameId = null;
+    // If we're pausing (not game over)
+    if (!this.gameOver) {
+      // Set paused flag
+      this.paused = true;
+      
+      // Completely stop the animation loop during pause
+      if (this.animationFrameId !== null) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = null;
+      }
+      
+      // Render one final frame in paused state
+      this.render();
+    } else {
+      // If game is over, just stop the animation loop
+      if (this.animationFrameId !== null) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = null;
+      }
     }
   }
   
+  public isPaused(): boolean {
+    return this.paused;
+  }
+  
   private gameLoop = (timestamp: number) => {
-    // Don't continue loop if game is over
-    if (this.gameOver) {
+    // If game is over or paused, don't continue
+    if (this.gameOver || this.paused) {
+      if (this.animationFrameId !== null) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = null;
+      }
       return;
     }
     
-    // Calculate delta time
-    const deltaTime = (timestamp - this.lastTime) / 1000;
+    // Calculate delta time - cap at 50ms to prevent large jumps
+    const deltaTime = Math.min((timestamp - this.lastTime) / 1000, 0.05);
+    
+    // Update lastTime for the next frame
     this.lastTime = timestamp;
     
     // Process input
@@ -1236,7 +1303,7 @@ export class GameEngine {
     // Render game objects
     this.render();
     
-    // Request next frame (store the ID)
+    // Request next frame
     this.animationFrameId = requestAnimationFrame(this.gameLoop);
   };
   
@@ -1282,8 +1349,8 @@ export class GameEngine {
   }
   
   private processInput(deltaTime: number) {
-    // Skip input processing if game is over
-    if (this.gameOver) {
+    // Skip input processing if game is over or paused
+    if (this.gameOver || this.paused) {
       return;
     }
     
@@ -1299,7 +1366,7 @@ export class GameEngine {
     this.ship.isThrusting = this.keys['ArrowUp'] === true;
     
     // Fire weapon
-    if (this.keys[' '] && this.ship.weapon) {
+    if (this.keys[' '] && this.ship.weapon && this.ship.weapon.canFire()) {
       this.fireWeapon();
     }
   }
