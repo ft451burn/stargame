@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
+import RetroLogo from '../components/RetroLogo';
 
 const MenuContainer = styled.div`
   display: flex;
@@ -10,6 +11,7 @@ const MenuContainer = styled.div`
   height: 100vh;
   width: 100vw;
   background-color: #000;
+  overflow: hidden;
 `;
 
 const Title = styled.h1`
@@ -39,8 +41,31 @@ const MenuButton = styled.button`
   }
 `;
 
+const ButtonContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 1rem;
+`;
+
 const MainMenu: React.FC = () => {
   const navigate = useNavigate();
+  const [logoSize, setLogoSize] = useState({ width: 400, height: 300 });
+  
+  useEffect(() => {
+    const handleResize = () => {
+      const width = Math.min(window.innerWidth * 0.8, 500);
+      const height = width * 0.75;
+      setLogoSize({ width, height });
+    };
+    
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
   
   const handleStartGame = () => {
     navigate('/game');
@@ -52,9 +77,11 @@ const MainMenu: React.FC = () => {
   
   return (
     <MenuContainer>
-      <Title>STARGAME</Title>
-      <MenuButton onClick={handleStartGame}>START</MenuButton>
-      <MenuButton onClick={handleOptions}>OPTIONS</MenuButton>
+      <RetroLogo width={logoSize.width} height={logoSize.height} />
+      <ButtonContainer>
+        <MenuButton onClick={handleStartGame}>START</MenuButton>
+        <MenuButton onClick={handleOptions}>OPTIONS</MenuButton>
+      </ButtonContainer>
     </MenuContainer>
   );
 };
