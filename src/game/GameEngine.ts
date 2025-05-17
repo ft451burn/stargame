@@ -9,14 +9,15 @@ export interface GameObject {
   size: number;
   rotation: number;
   render: (ctx: CanvasRenderingContext2D) => void;
-  update: (deltaTime: number) => void;
+  update: (deltaTime: number, ...args: any[]) => void;
 }
 
 export enum PowerUpType {
   WEAPON = 'weapon',
   SHIELD = 'shield',
   LIFE = 'life',
-  SPEED = 'speed'
+  SPEED = 'speed',
+  MULTISHOT = 'multishot'
 }
 
 export interface PowerUp extends GameObject {
@@ -32,6 +33,7 @@ export interface Bullet extends GameObject {
   active: boolean;
   lifeTime: number;
   damage: number;
+  fromEnemy?: boolean;
 }
 
 export interface Weapon {
@@ -41,7 +43,7 @@ export interface Weapon {
   bulletSize: number;
   bulletDamage: number;
   canFire: () => boolean;
-  fire: (position: Vector2D, rotation: number) => Bullet;
+  fire: (position: Vector2D, rotation: number, fromEnemy?: boolean) => Bullet;
 }
 
 export interface Spaceship extends GameObject {
@@ -58,6 +60,30 @@ export interface Spaceship extends GameObject {
   weapon: Weapon | null;
   hasShield: boolean;
   shieldTime: number;
+  multiShotLevel: number;
+}
+
+export enum EnemyBehavior {
+  CHASE, // Chase the player
+  PATROL, // Move around in patterns
+  AMBUSH // Stay still until player is close, then attack
+}
+
+export interface EnemyShip extends GameObject {
+  health: number;
+  behavior: EnemyBehavior;
+  weapon: Weapon;
+  detectionRadius: number; // How far away they can see the player
+  fireRadius: number; // How close they need to be to fire
+  active: boolean;
+  rotationSpeed: number;
+  speed: number;
+  lastDirectionChange: number;
+  directionChangeInterval: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  targetPosition: Vector2D | null;
+  color: string;
 }
 
 export interface Asteroid extends GameObject {
@@ -75,10 +101,14 @@ export class GameEngine {
   private asteroids: Asteroid[] = [];
   private powerUps: PowerUp[] = [];
   private bullets: Bullet[] = [];
+  private enemies: EnemyShip[] = [];
   private keys: { [key: string]: boolean } = {};
   private score: number = 0;
   private powerUpSpawnTime: number = 0;
   private powerUpSpawnInterval: number = 10; // Spawn power-up every 10 seconds
+  private enemySpawnTime: number = 0;
+  private enemySpawnInterval: number = 15; // Spawn enemy every 15 seconds
+  private level: number = 1;
   
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -89,6 +119,9 @@ export class GameEngine {
     
     // Generate initial asteroids
     this.generateAsteroids(5);
+    
+    // Generate initial enemies
+    this.generateEnemies(1);
     
     // Set up event listeners
     window.addEventListener('keydown', this.handleKeyDown);
@@ -127,6 +160,7 @@ export class GameEngine {
       weapon: this.createBasicWeapon(),
       hasShield: false,
       shieldTime: 0,
+      multiShotLevel: 0,
       
       update(deltaTime: number) {
         // Update position based on velocity
@@ -233,7 +267,7 @@ export class GameEngine {
         return false;
       },
       
-      fire(position: Vector2D, rotation: number): Bullet {
+      fire(position: Vector2D, rotation: number, fromEnemy: boolean = false): Bullet {
         this.lastFireTime = performance.now();
         
         return {
@@ -247,6 +281,7 @@ export class GameEngine {
           active: true,
           lifeTime: 2, // Bullet lives for 2 seconds
           damage: this.bulletDamage,
+          fromEnemy,
           
           update(deltaTime: number) {
             // Update position
@@ -262,7 +297,7 @@ export class GameEngine {
           
           render(ctx: CanvasRenderingContext2D) {
             ctx.save();
-            ctx.fillStyle = 'white';
+            ctx.fillStyle = this.fromEnemy ? 'red' : 'white';
             ctx.beginPath();
             ctx.arc(this.position.x, this.position.y, this.size, 0, Math.PI * 2);
             ctx.fill();
@@ -289,7 +324,7 @@ export class GameEngine {
         return false;
       },
       
-      fire(position: Vector2D, rotation: number): Bullet {
+      fire(position: Vector2D, rotation: number, fromEnemy: boolean = false): Bullet {
         this.lastFireTime = performance.now();
         
         return {
@@ -303,6 +338,7 @@ export class GameEngine {
           active: true,
           lifeTime: 3, // Bullet lives for 3 seconds
           damage: this.bulletDamage,
+          fromEnemy,
           
           update(deltaTime: number) {
             // Update position
@@ -318,7 +354,7 @@ export class GameEngine {
           
           render(ctx: CanvasRenderingContext2D) {
             ctx.save();
-            ctx.fillStyle = 'rgba(255, 100, 100, 1)';
+            ctx.fillStyle = this.fromEnemy ? 'rgba(255, 50, 50, 1)' : 'rgba(255, 100, 100, 1)';
             ctx.beginPath();
             ctx.arc(this.position.x, this.position.y, this.size, 0, Math.PI * 2);
             ctx.fill();
@@ -329,8 +365,69 @@ export class GameEngine {
     };
   }
   
+  private createEnemyWeapon(): Weapon {
+    return {
+      fireRate: 1.5, // Slower fire rate than player
+      lastFireTime: 0,
+      bulletSpeed: 350 / 3, // 3 times slower than before
+      bulletSize: 5, // Larger bullet size
+      bulletDamage: 1,
+      
+      canFire(): boolean {
+        const now = performance.now();
+        if (now - this.lastFireTime >= 1000 / this.fireRate) {
+          return true;
+        }
+        return false;
+      },
+      
+      fire(position: Vector2D, rotation: number, fromEnemy: boolean = true): Bullet {
+        this.lastFireTime = performance.now();
+        
+        return {
+          position: { x: position.x, y: position.y },
+          velocity: {
+            x: Math.cos(rotation) * this.bulletSpeed,
+            y: Math.sin(rotation) * this.bulletSpeed
+          },
+          size: this.bulletSize,
+          rotation: rotation,
+          active: true,
+          lifeTime: 3, // Increased lifetime due to slower speed
+          damage: this.bulletDamage,
+          fromEnemy,
+          
+          update(deltaTime: number) {
+            // Update position
+            this.position.x += this.velocity.x * deltaTime;
+            this.position.y += this.velocity.y * deltaTime;
+            
+            // Update lifetime
+            this.lifeTime -= deltaTime;
+            if (this.lifeTime <= 0) {
+              this.active = false;
+            }
+          },
+          
+          render(ctx: CanvasRenderingContext2D) {
+            ctx.save();
+            ctx.fillStyle = 'rgba(255, 50, 50, 0.8)';
+            ctx.strokeStyle = 'rgba(255, 200, 200, 0.6)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(this.position.x, this.position.y, this.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+          }
+        };
+      }
+    };
+  }
+  
   private fireWeapon() {
     if (this.ship.weapon && this.ship.weapon.canFire()) {
+      // Standard shot (always fires)
       const bullet = this.ship.weapon.fire(
         { 
           x: this.ship.position.x + Math.cos(this.ship.rotation) * this.ship.size, 
@@ -340,18 +437,118 @@ export class GameEngine {
       );
       
       this.bullets.push(bullet);
+      
+      // Add multiple shots based on multiShotLevel
+      if (this.ship.multiShotLevel > 0) {
+        const spreadAngles = [];
+        
+        // Calculate spread angles based on multiShotLevel
+        switch (this.ship.multiShotLevel) {
+          case 1: // Double shot (center + 1 to the side)
+            spreadAngles.push(this.ship.rotation + Math.PI / 12);
+            break;
+          case 2: // Triple shot (center + 2 to the sides)
+            spreadAngles.push(this.ship.rotation - Math.PI / 12);
+            spreadAngles.push(this.ship.rotation + Math.PI / 12);
+            break;
+          case 3: // Quad shot (center + 3 to the sides)
+            spreadAngles.push(this.ship.rotation - Math.PI / 10);
+            spreadAngles.push(this.ship.rotation + Math.PI / 10);
+            spreadAngles.push(this.ship.rotation - Math.PI / 5);
+            break;
+          case 4: // Five shots (center + 4 to the sides)
+            spreadAngles.push(this.ship.rotation - Math.PI / 12);
+            spreadAngles.push(this.ship.rotation + Math.PI / 12);
+            spreadAngles.push(this.ship.rotation - Math.PI / 6);
+            spreadAngles.push(this.ship.rotation + Math.PI / 6);
+            break;
+          default: // If level > 4, add even more shots with wider spread
+            spreadAngles.push(this.ship.rotation - Math.PI / 12);
+            spreadAngles.push(this.ship.rotation + Math.PI / 12);
+            spreadAngles.push(this.ship.rotation - Math.PI / 6);
+            spreadAngles.push(this.ship.rotation + Math.PI / 6);
+            spreadAngles.push(this.ship.rotation - Math.PI / 4);
+            spreadAngles.push(this.ship.rotation + Math.PI / 4);
+            break;
+        }
+        
+        // Fire additional bullets at spread angles
+        for (const angle of spreadAngles) {
+          const spreadBullet = this.ship.weapon.fire(
+            { 
+              x: this.ship.position.x + Math.cos(angle) * this.ship.size, 
+              y: this.ship.position.y + Math.sin(angle) * this.ship.size 
+            }, 
+            angle
+          );
+          
+          this.bullets.push(spreadBullet);
+        }
+      }
+    }
+  }
+  
+  private enemyFireWeapon(enemy: EnemyShip) {
+    if (enemy.weapon && enemy.weapon.canFire()) {
+      // Calculate angle to player for targeting
+      const angleToPlayer = Math.atan2(
+        this.ship.position.y - enemy.position.y,
+        this.ship.position.x - enemy.position.x
+      );
+      
+      // Calculate difference between enemy's facing direction and angle to player
+      const angleDiff = angleToPlayer - enemy.rotation;
+      const normalizedAngleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+      
+      // Only fire if enemy is somewhat facing the player (within ~30 degrees)
+      const firingAngleThreshold = Math.PI / 6;
+      
+      if (Math.abs(normalizedAngleDiff) < firingAngleThreshold) {
+        // Add some inaccuracy to enemy shots
+        const inaccuracy = (Math.random() - 0.5) * 0.3;
+        const firingAngle = enemy.rotation + inaccuracy;
+        
+        // Fire in the enemy's current facing direction (with slight inaccuracy)
+        const bullet = enemy.weapon.fire(
+          { 
+            x: enemy.position.x + Math.cos(firingAngle) * enemy.size, 
+            y: enemy.position.y + Math.sin(firingAngle) * enemy.size 
+          }, 
+          firingAngle,
+          true
+        );
+        
+        this.bullets.push(bullet);
+      }
     }
   }
   
   private generatePowerUp(): void {
-    const types = [
-      PowerUpType.WEAPON,
-      PowerUpType.SHIELD,
-      PowerUpType.LIFE,
-      PowerUpType.SPEED
+    // Define power-up types with their spawn weights
+    const powerUpOptions = [
+      { type: PowerUpType.WEAPON, weight: 30 },
+      { type: PowerUpType.SHIELD, weight: 30 },
+      { type: PowerUpType.LIFE, weight: 15 },
+      { type: PowerUpType.SPEED, weight: 20 },
+      { type: PowerUpType.MULTISHOT, weight: 5 }
     ];
     
-    const randomType = types[Math.floor(Math.random() * types.length)];
+    // Calculate total weight
+    const totalWeight = powerUpOptions.reduce((sum, option) => sum + option.weight, 0);
+    
+    // Pick a random number within the total weight
+    let randomValue = Math.random() * totalWeight;
+    let selectedType = PowerUpType.WEAPON; // Default
+    
+    // Find the selected type based on weights
+    for (const option of powerUpOptions) {
+      randomValue -= option.weight;
+      if (randomValue <= 0) {
+        selectedType = option.type;
+        break;
+      }
+    }
+    
     const position = {
       x: Math.random() * this.canvas.width,
       y: Math.random() * this.canvas.height
@@ -373,7 +570,7 @@ export class GameEngine {
       velocity: { x: (Math.random() - 0.5) * 20, y: (Math.random() - 0.5) * 20 },
       size: 15,
       rotation: 0,
-      type: randomType,
+      type: selectedType,
       active: true,
       duration: 10, // 10 seconds
       currentDuration: 0,
@@ -409,6 +606,9 @@ export class GameEngine {
             break;
           case PowerUpType.SPEED:
             ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';
+            break;
+          case PowerUpType.MULTISHOT:
+            ctx.fillStyle = 'rgba(255, 0, 255, 0.8)';
             break;
         }
         
@@ -458,6 +658,20 @@ export class GameEngine {
             ctx.lineTo(0, 0);
             ctx.lineTo(-this.size / 2, -this.size);
             break;
+          case PowerUpType.MULTISHOT:
+            // Draw a spread pattern
+            for (let i = 0; i < 3; i++) {
+              const angle = (i * Math.PI) / 2 - Math.PI / 4;
+              const x = Math.cos(angle) * this.size;
+              const y = Math.sin(angle) * this.size;
+              ctx.beginPath();
+              ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+              ctx.moveTo(x, y);
+              ctx.lineTo(0, 0);
+              ctx.lineTo(x, y);
+              ctx.closePath();
+            }
+            break;
         }
         
         ctx.closePath();
@@ -494,6 +708,15 @@ export class GameEngine {
         setTimeout(() => {
           this.ship.maxThrust = originalMaxThrust;
         }, powerUp.duration * 1000);
+        break;
+      case PowerUpType.MULTISHOT:
+        // Increase multishot level, capping at 5
+        if (this.ship.multiShotLevel < 5) {
+          this.ship.multiShotLevel++;
+          
+          // Add score bonus for upgrading multishot
+          this.score += 50 * this.ship.multiShotLevel;
+        }
         break;
     }
     
@@ -583,6 +806,208 @@ export class GameEngine {
     }
   }
   
+  private generateEnemies(count: number) {
+    const behaviors = [EnemyBehavior.CHASE, EnemyBehavior.PATROL, EnemyBehavior.AMBUSH];
+    const colors = ['#ff4444', '#ff9944', '#ffdd44'];
+    
+    for (let i = 0; i < count; i++) {
+      const safeDistance = 200; // Minimum distance from ship
+      let position: Vector2D;
+      
+      // Ensure enemies don't spawn too close to the ship
+      do {
+        position = {
+          x: Math.random() * this.canvas.width,
+          y: Math.random() * this.canvas.height
+        };
+      } while (
+        Math.sqrt(
+          Math.pow(position.x - this.ship.position.x, 2) +
+          Math.pow(position.y - this.ship.position.y, 2)
+        ) < safeDistance
+      );
+      
+      const behavior = behaviors[Math.floor(Math.random() * behaviors.length)];
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      
+      const enemy: EnemyShip = {
+        position,
+        velocity: { x: 0, y: 0 },
+        size: 18,
+        rotation: Math.random() * Math.PI * 2,
+        health: 2,
+        behavior,
+        weapon: this.createEnemyWeapon(),
+        detectionRadius: 300,
+        fireRadius: 250,
+        active: true,
+        rotationSpeed: 1 + Math.random() * 0.8, // Reduced rotation speed for smoother turning
+        speed: 50 + Math.random() * 30,
+        lastDirectionChange: 0,
+        directionChangeInterval: 2 + Math.random() * 3,
+        canvasWidth: this.canvas.width,
+        canvasHeight: this.canvas.height,
+        targetPosition: null,
+        color,
+        
+        update(deltaTime: number, playerPosition: Vector2D) {
+          // Calculate distance and angle to player
+          const distanceToPlayer = Math.sqrt(
+            Math.pow(playerPosition.x - this.position.x, 2) +
+            Math.pow(playerPosition.y - this.position.y, 2)
+          );
+          
+          const angleToPlayer = Math.atan2(
+            playerPosition.y - this.position.y,
+            playerPosition.x - this.position.x
+          );
+          
+          // Update based on behavior
+          switch (this.behavior) {
+            case EnemyBehavior.CHASE:
+              // Gradually turn towards player if within detection radius
+              if (distanceToPlayer < this.detectionRadius) {
+                // Calculate the angle difference for smooth rotation
+                const angleDiff = angleToPlayer - this.rotation;
+                const normalizedAngleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+                
+                // Rotate gradually toward player
+                this.rotation += normalizedAngleDiff * this.rotationSpeed * deltaTime;
+                
+                // Move forward in current rotation direction, not directly at player
+                this.velocity.x = Math.cos(this.rotation) * this.speed * deltaTime;
+                this.velocity.y = Math.sin(this.rotation) * this.speed * deltaTime;
+              } else {
+                // Slow down if player is not detected
+                this.velocity.x *= 0.98;
+                this.velocity.y *= 0.98;
+              }
+              break;
+              
+            case EnemyBehavior.PATROL:
+              // Update direction change timer
+              this.lastDirectionChange += deltaTime;
+              
+              if (this.lastDirectionChange > this.directionChangeInterval || !this.targetPosition) {
+                this.lastDirectionChange = 0;
+                
+                // Set a new random target position
+                this.targetPosition = {
+                  x: Math.random() * this.canvasWidth,
+                  y: Math.random() * this.canvasHeight
+                };
+              }
+              
+              // If player is in detection range, set player as target but don't immediately turn
+              if (distanceToPlayer < this.detectionRadius) {
+                // Only update target position, not rotation
+                this.targetPosition = { x: playerPosition.x, y: playerPosition.y };
+              }
+              
+              if (this.targetPosition) {
+                // Calculate angle to target
+                const angleToTarget = Math.atan2(
+                  this.targetPosition.y - this.position.y,
+                  this.targetPosition.x - this.position.x
+                );
+                
+                // Gradually rotate towards target
+                const angleDiff = angleToTarget - this.rotation;
+                const normalizedAngleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+                
+                // Slower rotation for smoother movement
+                this.rotation += normalizedAngleDiff * this.rotationSpeed * deltaTime;
+                
+                // Move towards target in current rotation direction
+                this.velocity.x = Math.cos(this.rotation) * this.speed * deltaTime;
+                this.velocity.y = Math.sin(this.rotation) * this.speed * deltaTime;
+              }
+              break;
+              
+            case EnemyBehavior.AMBUSH:
+              // Stay still until player is close, then attack gradually
+              if (distanceToPlayer < this.detectionRadius) {
+                // Calculate angle difference for smooth rotation
+                const angleDiff = angleToPlayer - this.rotation;
+                const normalizedAngleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+                
+                // Rotate with slightly increased speed when ambushing
+                this.rotation += normalizedAngleDiff * this.rotationSpeed * 1.2 * deltaTime;
+                
+                // Start slowly and accelerate
+                const ambushSpeed = Math.min(this.speed * 1.5, 
+                                          this.speed * (1 + (this.detectionRadius - distanceToPlayer) / this.detectionRadius));
+                
+                // Move in current rotation direction
+                this.velocity.x = Math.cos(this.rotation) * ambushSpeed * deltaTime;
+                this.velocity.y = Math.sin(this.rotation) * ambushSpeed * deltaTime;
+              } else {
+                // Almost no movement when not detected
+                this.velocity.x *= 0.9;
+                this.velocity.y *= 0.9;
+              }
+              break;
+          }
+          
+          // Add slight wandering effect to make movement less predictable
+          const wanderStrength = 0.2;
+          this.rotation += (Math.random() - 0.5) * wanderStrength * deltaTime;
+          
+          // Update position based on velocity
+          this.position.x += this.velocity.x;
+          this.position.y += this.velocity.y;
+          
+          // Screen wrapping
+          if (this.position.x < 0) this.position.x = this.canvasWidth;
+          if (this.position.x > this.canvasWidth) this.position.x = 0;
+          if (this.position.y < 0) this.position.y = this.canvasHeight;
+          if (this.position.y > this.canvasHeight) this.position.y = 0;
+        },
+        
+        render(ctx: CanvasRenderingContext2D) {
+          ctx.save();
+          ctx.translate(this.position.x, this.position.y);
+          ctx.rotate(this.rotation);
+          
+          // Draw ship body
+          ctx.strokeStyle = this.color;
+          ctx.fillStyle = 'rgba(30, 30, 30, 0.8)';
+          ctx.lineWidth = 2;
+          
+          ctx.beginPath();
+          // Different shape from player ship
+          ctx.moveTo(this.size, 0);
+          ctx.lineTo(-this.size / 2, -this.size / 2);
+          ctx.lineTo(-this.size / 3, 0);
+          ctx.lineTo(-this.size / 2, this.size / 2);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          
+          // Draw engine glow
+          ctx.beginPath();
+          ctx.fillStyle = 'rgba(255, 100, 50, 0.7)';
+          ctx.moveTo(-this.size / 2, 0);
+          ctx.lineTo(-this.size - Math.random() * 5, -3);
+          ctx.lineTo(-this.size - Math.random() * 5, 3);
+          ctx.closePath();
+          ctx.fill();
+          
+          // Draw direction indicator
+          ctx.beginPath();
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+          ctx.moveTo(this.size, 0);
+          ctx.lineTo(this.size + 5, 0);
+          ctx.stroke();
+          
+          ctx.restore();
+        }
+      };
+      
+      this.enemies.push(enemy);
+    }
+  }
+  
   private checkCollisions() {
     // Ship-Asteroid collision
     if (!this.ship.isInvulnerable && !this.ship.hasShield) {
@@ -598,12 +1023,26 @@ export class GameEngine {
           break;
         }
       }
+      
+      // Ship-Enemy collision
+      for (let i = 0; i < this.enemies.length; i++) {
+        const enemy = this.enemies[i];
+        const distance = Math.sqrt(
+          Math.pow(enemy.position.x - this.ship.position.x, 2) +
+          Math.pow(enemy.position.y - this.ship.position.y, 2)
+        );
+        
+        if (distance < this.ship.size + enemy.size) {
+          this.handleShipCollision();
+          break;
+        }
+      }
     }
     
     // Bullet-Asteroid collision
     for (let i = 0; i < this.bullets.length; i++) {
       const bullet = this.bullets[i];
-      if (!bullet.active) continue;
+      if (!bullet.active || bullet.fromEnemy) continue;
       
       for (let j = 0; j < this.asteroids.length; j++) {
         const asteroid = this.asteroids[j];
@@ -633,6 +1072,78 @@ export class GameEngine {
             if (this.asteroids.length < 3) {
               this.generateAsteroids(2);
             }
+          }
+          
+          break;
+        }
+      }
+    }
+    
+    // Bullet-Enemy collision
+    for (let i = 0; i < this.bullets.length; i++) {
+      const bullet = this.bullets[i];
+      if (!bullet.active || bullet.fromEnemy) continue;
+      
+      for (let j = 0; j < this.enemies.length; j++) {
+        const enemy = this.enemies[j];
+        const distance = Math.sqrt(
+          Math.pow(enemy.position.x - bullet.position.x, 2) +
+          Math.pow(enemy.position.y - bullet.position.y, 2)
+        );
+        
+        if (distance < bullet.size + enemy.size) {
+          // Deactivate the bullet
+          bullet.active = false;
+          
+          // Damage the enemy
+          enemy.health -= bullet.damage;
+          
+          // If enemy health is 0 or less, remove it
+          if (enemy.health <= 0) {
+            this.enemies.splice(j, 1);
+            this.score += 250; // More points for destroying enemy ships
+            
+            // Randomly spawn a power-up (30% chance)
+            if (Math.random() < 0.3) {
+              this.generatePowerUp();
+            }
+            
+            // Check if level should increase
+            if (this.score >= this.level * 1000) {
+              this.level++;
+              this.generateEnemies(this.level);
+            }
+          }
+          
+          break;
+        }
+      }
+    }
+    
+    // Enemy bullet-Ship collision
+    if (!this.ship.isInvulnerable) {
+      for (let i = 0; i < this.bullets.length; i++) {
+        const bullet = this.bullets[i];
+        if (!bullet.active || !bullet.fromEnemy) continue;
+        
+        const distance = Math.sqrt(
+          Math.pow(this.ship.position.x - bullet.position.x, 2) +
+          Math.pow(this.ship.position.y - bullet.position.y, 2)
+        );
+        
+        if (distance < this.ship.size + bullet.size) {
+          // Deactivate the bullet
+          bullet.active = false;
+          
+          if (this.ship.hasShield) {
+            // Shield absorbs the hit
+            this.ship.shieldTime -= 1;
+            if (this.ship.shieldTime <= 0) {
+              this.ship.hasShield = false;
+            }
+          } else {
+            // Handle ship collision
+            this.handleShipCollision();
           }
           
           break;
@@ -700,6 +1211,9 @@ export class GameEngine {
     // Handle power-up spawning
     this.updatePowerUpSpawn(deltaTime);
     
+    // Handle enemy spawning
+    this.updateEnemySpawn(deltaTime);
+    
     // Render game objects
     this.render();
     
@@ -720,12 +1234,32 @@ export class GameEngine {
     }
   }
   
+  private updateEnemySpawn(deltaTime: number) {
+    this.enemySpawnTime += deltaTime;
+    
+    // Spawn enemies more frequently as level increases
+    const adjustedInterval = Math.max(this.enemySpawnInterval - (this.level * 0.5), 5);
+    
+    if (this.enemySpawnTime >= adjustedInterval) {
+      this.enemySpawnTime = 0;
+      
+      // Don't spawn too many enemies at once
+      const maxEnemies = 5 + this.level;
+      if (this.enemies.length < maxEnemies) {
+        this.generateEnemies(1);
+      }
+    }
+  }
+  
   private cleanupInactiveObjects() {
     // Remove inactive bullets
     this.bullets = this.bullets.filter(bullet => bullet.active);
     
     // Remove inactive power-ups
     this.powerUps = this.powerUps.filter(powerUp => powerUp.active);
+    
+    // Remove inactive enemies
+    this.enemies = this.enemies.filter(enemy => enemy.active);
   }
   
   private processInput(deltaTime: number) {
@@ -764,6 +1298,22 @@ export class GameEngine {
     for (const powerUp of this.powerUps) {
       powerUp.update(deltaTime);
     }
+    
+    // Update enemies
+    for (const enemy of this.enemies) {
+      enemy.update(deltaTime, this.ship.position);
+      
+      // Check if enemy can fire at player
+      const distanceToPlayer = Math.sqrt(
+        Math.pow(this.ship.position.x - enemy.position.x, 2) +
+        Math.pow(this.ship.position.y - enemy.position.y, 2)
+      );
+      
+      // Only attempt to fire if within range and on a reduced probability
+      if (distanceToPlayer < enemy.fireRadius && Math.random() < 0.02) {
+        this.enemyFireWeapon(enemy);
+      }
+    }
   }
   
   private render() {
@@ -784,6 +1334,11 @@ export class GameEngine {
     // Render ship
     this.ship.render(this.ctx);
     
+    // Render enemies
+    for (const enemy of this.enemies) {
+      enemy.render(this.ctx);
+    }
+    
     // Render power-ups
     for (const powerUp of this.powerUps) {
       powerUp.render(this.ctx);
@@ -803,6 +1358,9 @@ export class GameEngine {
     // Display score
     this.ctx.fillText(`Score: ${this.score}`, 20, 60);
     
+    // Display level
+    this.ctx.fillText(`Level: ${this.level}`, 20, 90);
+    
     // Display active power-ups
     let powerUpText = '';
     
@@ -818,9 +1376,16 @@ export class GameEngine {
       powerUpText += 'SPEED ';
     }
     
-    if (powerUpText) {
-      this.ctx.fillText(`Active: ${powerUpText}`, 20, 90);
+    if (this.ship.multiShotLevel > 0) {
+      powerUpText += `MULTISHOT-${this.ship.multiShotLevel} `;
     }
+    
+    if (powerUpText) {
+      this.ctx.fillText(`Active: ${powerUpText}`, 20, 120);
+    }
+    
+    // Display enemies left
+    this.ctx.fillText(`Enemies: ${this.enemies.length}`, 20, 150);
   }
   
   public resize(width: number, height: number) {
@@ -834,6 +1399,11 @@ export class GameEngine {
     for (const asteroid of this.asteroids) {
       asteroid.canvasWidth = width;
       asteroid.canvasHeight = height;
+    }
+    
+    for (const enemy of this.enemies) {
+      enemy.canvasWidth = width;
+      enemy.canvasHeight = height;
     }
   }
   
