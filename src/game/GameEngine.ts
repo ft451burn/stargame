@@ -109,6 +109,8 @@ export class GameEngine {
   private enemySpawnTime: number = 0;
   private enemySpawnInterval: number = 15; // Spawn enemy every 15 seconds
   private level: number = 1;
+  private gameOver: boolean = false;
+  private animationFrameId: number | null = null;
   
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -1180,18 +1182,35 @@ export class GameEngine {
     
     // Check for game over
     if (this.ship.lives <= 0) {
-      // Implement game over logic
+      // Set game over state
+      this.gameOver = true;
+      // Stop the game loop
+      this.stop();
       console.log("Game Over");
-      // You would typically emit an event to the game screen to show game over
     }
   }
   
   public start() {
+    // Reset game over flag when starting
+    this.gameOver = false;
     this.lastTime = performance.now();
-    requestAnimationFrame(this.gameLoop);
+    this.animationFrameId = requestAnimationFrame(this.gameLoop);
+  }
+  
+  public stop() {
+    // Cancel the animation frame if it exists
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
   }
   
   private gameLoop = (timestamp: number) => {
+    // Don't continue loop if game is over
+    if (this.gameOver) {
+      return;
+    }
+    
     // Calculate delta time
     const deltaTime = (timestamp - this.lastTime) / 1000;
     this.lastTime = timestamp;
@@ -1217,8 +1236,8 @@ export class GameEngine {
     // Render game objects
     this.render();
     
-    // Request next frame
-    requestAnimationFrame(this.gameLoop);
+    // Request next frame (store the ID)
+    this.animationFrameId = requestAnimationFrame(this.gameLoop);
   };
   
   private updatePowerUpSpawn(deltaTime: number) {
@@ -1263,6 +1282,11 @@ export class GameEngine {
   }
   
   private processInput(deltaTime: number) {
+    // Skip input processing if game is over
+    if (this.gameOver) {
+      return;
+    }
+    
     // Rotation
     if (this.keys['ArrowLeft']) {
       this.ship.rotation -= this.ship.rotationSpeed * deltaTime;
@@ -1408,16 +1432,16 @@ export class GameEngine {
   }
   
   public dispose() {
+    // Make sure to stop the game loop when disposing
+    this.stop();
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
   }
   
-  // Add method to check if game is over
   public isGameOver(): boolean {
-    return this.ship.lives <= 0;
+    return this.gameOver;
   }
   
-  // Add method to get current score
   public getScore(): number {
     return this.score;
   }

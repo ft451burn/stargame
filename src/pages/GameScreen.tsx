@@ -113,6 +113,10 @@ const GameScreen: React.FC = () => {
         const finalScore = gameEngine.getScore();
         setScore(finalScore);
         saveHighScore(finalScore);
+        
+        // Explicitly stop the game engine
+        gameEngine.stop();
+        
         clearInterval(gameStateInterval);
       }
     }, 500);
@@ -126,8 +130,11 @@ const GameScreen: React.FC = () => {
     
     // Handle pause with Escape key
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsPaused(prev => !prev);
+      // Only handle keyboard input if game is not over
+      if (!gameEngine.isGameOver()) {
+        if (e.key === 'Escape') {
+          setIsPaused(prev => !prev);
+        }
       }
     };
     
